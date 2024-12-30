@@ -5,9 +5,11 @@ import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 
-from discord import Intents, Embed, Color, Interaction
+from discord import ActionRow, Intents, Embed, Color, Interaction
 from discord import app_commands
+from discord.enums import ButtonStyle
 from discord.ext import commands
+from discord.ui import Button, View
 from discord.reaction import Reaction
 from discord.member import Member
 from discord.message import Message
@@ -22,6 +24,7 @@ import database
 ROULETTE_MSG:Message = None
 BETS_MSG:Message = None
 TIMER_MSG:Message = None
+BUTTONS:View = None
 
 # Bot setup
 load_dotenv()
@@ -100,9 +103,11 @@ async def start_roulette_loop():
         # ----------------- CLEAR THE BETS TABLE
         await update_bets_table()
 
-        # ----------------- ADD BET BUTTONS
-        for bet_type in Emoji.BET_TYPES.ALL:
-            await ROULETTE_MSG.add_reaction(bet_type)
+        # ----------------- ENABLE BET BUTTONS
+        await set_button_states(True)
+        await ROULETTE_MSG.edit(view=BUTTONS)
+        #for bet_type in Emoji.BET_TYPES.ALL:
+        #    await ROULETTE_MSG.add_reaction(bet_type)
 
         # ----------------- START THE TIMER FOR BETTING
         if not TIMER_MSG:
@@ -119,9 +124,10 @@ async def start_roulette_loop():
             await TIMER_MSG.edit(content=f"Place your bets! ⏳ **{remaining_time}s** remaining\n{Emoji.PROGRESS_BAR.START}{progress_bar}{Emoji.PROGRESS_BAR.BEFORE_END}")
             await asyncio.sleep(1)
 
-        # ----------------- BETS OVER! CLEAR THE REACTIONS
+        # ----------------- BETS OVER! DISABLE BET BUTTONS
         await asyncio.sleep(1)
-        await ROULETTE_MSG.clear_reactions()
+        await set_button_states(False)
+        await ROULETTE_MSG.edit(view=BUTTONS)
         await TIMER_MSG.edit(content=f"Betting is now closed! 🚫\n{Emoji.PROGRESS_BAR.START}{Emoji.PROGRESS_BAR.BEHIND_EDGE * progress_bar_length}{Emoji.PROGRESS_BAR.AFTER_END}")
 
         # ----------------- BETS OVER! ANIMATE THE ROULETTE
@@ -144,15 +150,15 @@ async def start_roulette_loop():
 @app_commands.default_permissions(administrator=True)
 async def start(interaction: Interaction):
     global ROULETTE_MSG
+    global BUTTONS
+    BUTTONS = BetView()
     roulette_embed = embed_messages.setup_roulette()
-    ROULETTE_MSG = await interaction.channel.send(embed=roulette_embed)
+    ROULETTE_MSG = await interaction.channel.send(embed=roulette_embed, view=BUTTONS)
     if not ROULETTE_MSG:
-        await interaction.response.send_message(
-            "Error!", ephemeral=True
-        )
+        await interaction.response.send_message("Error!", ephemeral=True)
         return
     
-    await interaction.response.send_message("Starting the roulette game!", ephemeral=True)
+    await interaction.response.send_message("Starting the roulette game!", ephemeral=True, delete_after=3)
     # Start the roulette game loop
     bot.loop.create_task(start_roulette_loop())
 
@@ -305,6 +311,67 @@ async def update_bets_table(bets:list[Bet]=None, isRoundEnd:bool=False):
         BETS_MSG = await ROULETTE_MSG.channel.send(content)
     else:
         await BETS_MSG.edit(content=content)
+
+# Disable buttons in the BetView
+async def set_button_states(state:bool=True):
+    global BUTTONS
+    if BUTTONS:
+        for item in BUTTONS.children:
+            if isinstance(item, Button):
+                item.disabled = not(state)  # Disable the button
+        await ROULETTE_MSG.edit(view=BUTTONS)  # Update the message with the disabled buttons
+
+class BetButton(Button):
+    def __init__(self, label, bet_on, style):
+        super().__init__(label=label, style=style)
+        self.bet_on = bet_on
+
+    async def callback(self, interaction: Interaction):
+        global ROULETTE_MSG
+
+        # Fetch the current round
+        current_round:Round = database.get_last_round()
+        if not current_round:
+            await interaction.response.send_message("No active round found.", ephemeral=True)
+            return
+
+        # Fetch or create the gambler
+        gambler:Gambler = database.get_gambler_by_id(interaction.user.id)
+        if not gambler:
+            gambler = database.create_gambler(
+                id=interaction.user.id,
+                name=interaction.user.global_name
+            )
+
+        # Place the bet
+        bet_amount = gambler.default_bet_amount
+        try:
+            bets = database.get_all_bets_by_round_id(current_round.id)
+            for bet in bets:
+                if gambler.id == bet.gambler_id:
+                    await interaction.response.send_message(
+                        f"You have already made your bet on **{bet.bet_on}** with **{bet.amount}$**",
+                        ephemeral=True
+                    )
+                    return
+
+            new_bet = database.create_bet(gambler, current_round, bet_amount, self.bet_on)
+            bets.append(new_bet)
+            await update_bets_table(bets, isRoundEnd=False)
+            database.update_gambler_balance(gambler.id, -bet_amount)
+            await interaction.response.send_message(f"Bet placed on **{self.bet_on}** for **{bet_amount}$**!", ephemeral=True, delete_after=5)
+        except InsufficientBalanceException as e:
+            await interaction.response.send_message(f"{e}", ephemeral=True)
+        except Exception as e:
+            print(f"Error processing bet: {e}")
+            await interaction.response.send_message("There was an error placing your bet.", ephemeral=True)
+
+class BetView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(BetButton(label="RED", bet_on=game.Results.RED, style=ButtonStyle.red))
+        self.add_item(BetButton(label="GREEN", bet_on=game.Results.GREEN, style=ButtonStyle.green))
+        self.add_item(BetButton(label="BLACK", bet_on=game.Results.BLACK, style=ButtonStyle.grey))
 
 # Run the bot
 bot.run(token)
