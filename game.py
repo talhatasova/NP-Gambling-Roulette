@@ -1,5 +1,6 @@
 import requests
 import uuid
+from emojis import Emoji
 
 class Results():
     GREEN = "GREEN"
@@ -9,6 +10,9 @@ class Results():
 RED_MULTIPLIER = 2
 BLACK_MULTIPLIER = 2
 GREEN_MULTIPLIER = 14
+
+PROGRESS_BAR_LENGTH = 24
+PROGRESS_BAR = Emoji.PROGRESS_BAR.EDGE + Emoji.PROGRESS_BAR.FRONT_EDGE * (PROGRESS_BAR_LENGTH-1)
 
 BETTING_DURATION = 10
 def getBetDuration():

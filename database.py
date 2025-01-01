@@ -2,7 +2,7 @@ from sqlalchemy import ForeignKey, Column, Integer, String, Float, DateTime, Boo
 from sqlalchemy import event, create_engine, func
 from sqlalchemy.orm import declarative_base, relationship, joinedload, sessionmaker
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import game
 from exceptions import InsufficientBalanceException, NoGamblerException
 
@@ -18,7 +18,7 @@ class Gambler(Base):
     xp = Column(Integer, default=0)
     level = Column(Integer, default=1)
     daily = Column(Float, default=0.02)
-    daily_cooldown = Column(DateTime, default=func.now())
+    daily_cooldown = Column(DateTime(timezone=True), default=datetime.now())
     default_bet_amount = Column(Float, default=1.00)
 
     # Relationship to bets
@@ -26,6 +26,26 @@ class Gambler(Base):
     
     def __repr__(self):
         return f"Name={self.name} (Lvl.{self.level}), Balance={self.balance}"
+    
+    def __lt__(self, other):
+        if self.balance != other.balance:
+            return self.balance < other.balance
+        return sum(bet.amount for bet in self.bets) < sum(bet.amount for bet in other.bets)
+
+    def __le__(self, other):
+        return self < other or self == other
+
+    def __gt__(self, other):
+        return not self <= other
+
+    def __ge__(self, other):
+        return not self < other
+
+    def __eq__(self, other):
+        return self.balance == other.balance and sum(bet.amount for bet in self.bets) == sum(bet.amount for bet in other.bets)
+
+    def __ne__(self, other):
+        return not self == other
 
 class Round(Base):
     __tablename__ = 'rounds'
@@ -76,18 +96,12 @@ def set_bet_id(mapper, connection, target):
 DATABASE_URL = "sqlite:///roulette_game.db"
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
-session = Session()
 Base.metadata.create_all(engine)
+session = Session()
 
-def set_gambler_bet_amount(gambler_id:int, bet_amount:float):
-    gambler = get_gambler_by_id(gambler_id)
-    if gambler:
-        gambler.default_bet_amount = bet_amount
-        session.commit()
-    else:
-        raise NoGamblerException()
 # Gambler CRUD Operations
 def create_gambler(id, name, balance=100, xp=0, level=1, daily=0.02, default_bet_amount=1):
+    
     try:
         gambler = Gambler(id=id, name=name, balance=balance, xp=xp, level=level, daily=daily, default_bet_amount=default_bet_amount)
         session.add(gambler)
@@ -97,23 +111,48 @@ def create_gambler(id, name, balance=100, xp=0, level=1, daily=0.02, default_bet
     except Exception as e:
         session.rollback()
         print(f"Error creating gambler: {e}")
+    finally:
+        pass
 
 def get_gambler_by_id(gambler_id: int) -> Gambler:
-    gambler = session.query(Gambler).options(joinedload(Gambler.bets)).filter_by(id=gambler_id).first()
-    return gambler
+    try:
+        gambler = session.query(Gambler).options(joinedload(Gambler.bets)).filter_by(id=gambler_id).first()
+        if gambler:
+            return gambler
+        else:
+            raise NoGamblerException("You are not registered yet. Please click on the `Register` button and start playing.")
+    finally:
+        pass
 
+def update_daily_cooldown(gambler_id: int): 
+    try:
+        gambler = session.query(Gambler).filter_by(id=gambler_id).first()
+        if gambler:
+            gambler.daily_cooldown = datetime.now().replace(microsecond=0) + timedelta(days=1)
+            session.commit()
+        else:
+            raise NoGamblerException(f"The gambler is not registered: {gambler_id}")
+    except Exception as e:
+        session.rollback()
+        print(f"Error updating daily reward cooldown: {e}")
+        raise e
+    finally:
+        pass
+    
 def update_gambler_balance(gambler_id, update_balance):
     try:
         gambler = session.query(Gambler).filter_by(id=gambler_id).first()
         if gambler:
             gambler.balance += update_balance
+            gambler.balance = round(gambler.balance, 2)
             session.commit()
-            print(f"Updated balance for Gambler ID={gambler_id}")
         else:
-            print(f"Gambler ID={gambler_id} not found")
+            raise NoGamblerException(f"The gambler is not registered: {gambler_id}")
     except Exception as e:
         session.rollback()
         print(f"Error updating balance: {e}")
+    finally:
+        pass
 
 def delete_gambler(gambler_id):
     try:
@@ -127,6 +166,18 @@ def delete_gambler(gambler_id):
     except Exception as e:
         session.rollback()
         print(f"Error deleting gambler: {e}")
+    finally:
+        pass
+
+def set_gambler_bet_amount(gambler_id:int, bet_amount:float):
+    try:
+        gambler = get_gambler_by_id(gambler_id)
+        gambler.default_bet_amount = bet_amount
+        session.commit()
+    except NoGamblerException as e:
+        raise e
+    finally:
+        pass
 
 
 # Round CRUD Operations
@@ -145,7 +196,8 @@ def create_round(round_id:str, round_result:int) -> Round:
         session.rollback()
         print(f"Error creating round: {e}")
         return None
-
+    finally:
+        pass
 
 def get_round_by_id(round_id) -> Round:
     try:
@@ -153,20 +205,23 @@ def get_round_by_id(round_id) -> Round:
         return round_entry
     except Exception:
         return None
+    finally:
+        pass
 
-
-def get_last_round() -> Round:
+def get_last_round() -> Round: 
     try:
         round_entry = session.query(Round).order_by(Round.timestamp.desc()).first()
         return round_entry
     except Exception:
         return None
+    finally:
+        pass
 
 
 # Bet CRUD Operations
 def create_bet(gambler:Gambler, round:Round, amount:float, bet_on:str) -> Bet:
     if amount > gambler.balance:
-        raise InsufficientBalanceException(f"You do not have enough credits.\nBalance: **{gambler.balance}$**\nBet: **{amount}**$")
+        raise InsufficientBalanceException(f"You do not have enough credits.\nBalance: **${gambler.balance}**\nBet: **${amount}**")
     try:
         is_correct = round.result_color == bet_on
         if is_correct:
@@ -192,6 +247,8 @@ def create_bet(gambler:Gambler, round:Round, amount:float, bet_on:str) -> Bet:
     except Exception as e:
         session.rollback()
         print(f"Error creating bet: {e}")
+    finally:
+        pass
 
 def get_bet_of_gambler_by_round_id(gambler_id:int, round_id:int) -> Bet:
     try:
@@ -199,6 +256,8 @@ def get_bet_of_gambler_by_round_id(gambler_id:int, round_id:int) -> Bet:
         return bet
     except Exception:
         return None
+    finally:
+        pass
 
 def process_bets():
     current_round:Round = get_last_round()
@@ -212,6 +271,7 @@ def process_bets():
             )
             update_gambler_balance(bet.gambler_id, bet.amount*multiplier)
 
+
 # Utility Functions
 def get_all_gamblers() -> list[Gambler]:
     try:
@@ -219,6 +279,8 @@ def get_all_gamblers() -> list[Gambler]:
         return gamblers
     except Exception:
         return None
+    finally:
+        pass
 
 def get_all_rounds() -> list[Round]:
     try:
@@ -226,6 +288,8 @@ def get_all_rounds() -> list[Round]:
         return rounds
     except Exception:
         return None
+    finally:
+        pass
 
 def get_last_x_rounds(num: int) -> list[Round]:
     try:
@@ -234,11 +298,24 @@ def get_last_x_rounds(num: int) -> list[Round]:
     except Exception as e:
         print(f"Error fetching last {num} rounds: {e}")
         return []
+    finally:
+        pass
 
-    
-def get_all_bets_by_round_id(round_id:int) -> list[Bet]:
+def get_gambler_total_bet(gambler_id) -> float:
+    try:
+        all_bets = session.query(Bet).filter(Bet.gambler_id==gambler_id).all()
+        return sum([bet.amount for bet in all_bets])
+    finally:
+        pass
+
+def get_round_count() -> int:
+    return session.query(Round).count()
+
+def get_all_bets_by_round_id(round_id:int) -> list[Bet]:   
     try:
         bets = session.query(Bet).filter(Bet.round_id==round_id).all()
         return bets
     except Exception:
         return None
+    finally:
+        pass
