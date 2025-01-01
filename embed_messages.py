@@ -39,12 +39,14 @@ def leaderboard() -> Embed:
 
     # Prepare the leaderboard content
     leaderboard_rows = []
-    for rank, gambler in enumerate(gamblers, start=1):
+    rank = 1
+    for gambler in gamblers:
         name = gambler.name[:16].ljust(16)  # Truncate and align name to 10 chars
         balance = f"{gambler.balance:.2f}".rjust(10)  # Format balance
         bet_so_far = f"{sum(bet.amount for bet in gambler.bets):.2f}".rjust(10)  # Total bets placed
-        if float(bet_so_far) > 20: 
+        if float(bet_so_far) > 20 and balance > 0: 
             leaderboard_rows.append(f"{rank:<4} {name} {balance} {bet_so_far}")
+            rank += 1
 
     # Create the embed
     embed = Embed(

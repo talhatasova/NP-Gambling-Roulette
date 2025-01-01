@@ -6,6 +6,14 @@ from datetime import datetime, timedelta, timezone
 import game
 from exceptions import InsufficientBalanceException, NoGamblerException
 
+from settings import LEVELS
+LEVELS:list[dict]
+#    "level": 1,
+#    "daily": 0.02,
+#    "next_xp": 30,
+#    "total_xp": 0
+
+
 Base = declarative_base()
 
 # Database Models
@@ -111,8 +119,6 @@ def create_gambler(id, name, balance=100, xp=0, level=1, daily=0.02, default_bet
     except Exception as e:
         session.rollback()
         print(f"Error creating gambler: {e}")
-    finally:
-        pass
 
 def get_gambler_by_id(gambler_id: int) -> Gambler:
     try:
@@ -121,63 +127,62 @@ def get_gambler_by_id(gambler_id: int) -> Gambler:
             return gambler
         else:
             raise NoGamblerException("You are not registered yet. Please click on the `Register` button and start playing.")
-    finally:
-        pass
+    except Exception as e:
+        print(f"Database Error! get_gambler_by_id: {e}")
 
 def update_daily_cooldown(gambler_id: int): 
     try:
-        gambler = session.query(Gambler).filter_by(id=gambler_id).first()
-        if gambler:
-            gambler.daily_cooldown = datetime.now().replace(microsecond=0) + timedelta(days=1)
-            session.commit()
-        else:
-            raise NoGamblerException(f"The gambler is not registered: {gambler_id}")
+        gambler = get_gambler_by_id(gambler_id)
+        gambler.daily_cooldown = datetime.now().replace(microsecond=0) + timedelta(days=1)
+        session.commit()
     except Exception as e:
         session.rollback()
         print(f"Error updating daily reward cooldown: {e}")
         raise e
-    finally:
-        pass
     
-def update_gambler_balance(gambler_id, update_balance):
+def update_gambler_balance(gambler_id:int, update_balance:float):
     try:
-        gambler = session.query(Gambler).filter_by(id=gambler_id).first()
-        if gambler:
-            gambler.balance += update_balance
-            gambler.balance = round(gambler.balance, 2)
-            session.commit()
-        else:
-            raise NoGamblerException(f"The gambler is not registered: {gambler_id}")
+        gambler = get_gambler_by_id(gambler_id)
+        gambler.balance += update_balance
+        gambler.balance = round(gambler.balance, 2)
+        session.commit()
     except Exception as e:
         session.rollback()
         print(f"Error updating balance: {e}")
-    finally:
-        pass
 
-def delete_gambler(gambler_id):
+def delete_gambler(gambler_id:int):
     try:
-        gambler = session.query(Gambler).filter_by(id=gambler_id).first()
-        if gambler:
-            session.delete(gambler)
-            session.commit()
-            print(f"Gambler ID={gambler_id} deleted")
-        else:
-            print(f"Gambler ID={gambler_id} not found")
+        gambler = get_gambler_by_id(gambler_id)
+        session.delete(gambler)
+        session.commit()
+        print(f"Gambler ID={gambler_id} deleted")
     except Exception as e:
         session.rollback()
         print(f"Error deleting gambler: {e}")
-    finally:
-        pass
 
 def set_gambler_bet_amount(gambler_id:int, bet_amount:float):
     try:
         gambler = get_gambler_by_id(gambler_id)
         gambler.default_bet_amount = bet_amount
         session.commit()
-    except NoGamblerException as e:
-        raise e
-    finally:
-        pass
+    except Exception as e:
+        session.rollback()
+        print(f"Error setting gambler's new bet amount: {e}")
+
+def gambler_update_xp(gambler_id:int, xp:int):
+    try:
+        gambler = get_gambler_by_id(gambler_id)
+        gambler.xp += xp
+        gambler.xp = int(gambler.xp)
+        
+        while gambler.xp >= LEVELS[gambler.level+1].get("total_xp"):
+            gambler.level = LEVELS[gambler.level+1].get("level")
+
+        gambler.daily = LEVELS[gambler.level].get("daily")
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"Error updating xp: {e}")
 
 
 # Round CRUD Operations
@@ -190,14 +195,10 @@ def create_round(round_id:str, round_result:int) -> Round:
         )
         session.add(round_entry)
         session.commit()
-        print(f"Round created with ID={round_entry.id}")
         return round_entry
     except Exception as e:
         session.rollback()
         print(f"Error creating round: {e}")
-        return None
-    finally:
-        pass
 
 def get_round_by_id(round_id) -> Round:
     try:
@@ -205,8 +206,6 @@ def get_round_by_id(round_id) -> Round:
         return round_entry
     except Exception:
         return None
-    finally:
-        pass
 
 def get_last_round() -> Round: 
     try:
@@ -214,8 +213,6 @@ def get_last_round() -> Round:
         return round_entry
     except Exception:
         return None
-    finally:
-        pass
 
 
 # Bet CRUD Operations
@@ -247,17 +244,10 @@ def create_bet(gambler:Gambler, round:Round, amount:float, bet_on:str) -> Bet:
     except Exception as e:
         session.rollback()
         print(f"Error creating bet: {e}")
-    finally:
-        pass
 
 def get_bet_of_gambler_by_round_id(gambler_id:int, round_id:int) -> Bet:
-    try:
-        bet = session.query(Bet).filter(Bet.gambler_id==gambler_id).filter(Bet.round_id==round_id).first()
-        return bet
-    except Exception:
-        return None
-    finally:
-        pass
+    bet = session.query(Bet).filter(Bet.gambler_id==gambler_id).filter(Bet.round_id==round_id).first()
+    return bet
 
 def process_bets():
     current_round:Round = get_last_round()
@@ -274,22 +264,13 @@ def process_bets():
 
 # Utility Functions
 def get_all_gamblers() -> list[Gambler]:
-    try:
-        gamblers = session.query(Gambler).all()
-        return gamblers
-    except Exception:
-        return None
-    finally:
-        pass
+    gamblers = session.query(Gambler).all()
+    return gamblers
 
 def get_all_rounds() -> list[Round]:
-    try:
-        rounds = session.query(Round).all()
-        return rounds
-    except Exception:
-        return None
-    finally:
-        pass
+    rounds = session.query(Round).all()
+    return rounds
+
 
 def get_last_x_rounds(num: int) -> list[Round]:
     try:
@@ -298,24 +279,14 @@ def get_last_x_rounds(num: int) -> list[Round]:
     except Exception as e:
         print(f"Error fetching last {num} rounds: {e}")
         return []
-    finally:
-        pass
 
 def get_gambler_total_bet(gambler_id) -> float:
-    try:
-        all_bets = session.query(Bet).filter(Bet.gambler_id==gambler_id).all()
-        return sum([bet.amount for bet in all_bets])
-    finally:
-        pass
+    all_bets = session.query(Bet).filter(Bet.gambler_id==gambler_id).all()
+    return sum([bet.amount for bet in all_bets])
 
 def get_round_count() -> int:
     return session.query(Round).count()
 
 def get_all_bets_by_round_id(round_id:int) -> list[Bet]:   
-    try:
-        bets = session.query(Bet).filter(Bet.round_id==round_id).all()
-        return bets
-    except Exception:
-        return None
-    finally:
-        pass
+    bets = session.query(Bet).filter(Bet.round_id==round_id).all()
+    return bets
