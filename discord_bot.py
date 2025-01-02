@@ -20,6 +20,7 @@ import embed_messages
 import game
 from database import Gambler, Round, Bet
 import database
+from marketplace import setup_marketplace, MARKET_CHANNEL_ID
 
 ROULETTE_MSG:Message = None
 ROULETTE_EMBED:Embed = None
@@ -47,7 +48,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def setup(interaction: Interaction):
     await setup_helper(interaction)
     
-
 @bot.tree.command(name="start", description="Start the roulette game.")
 @app_commands.default_permissions(administrator=True)
 async def start(interaction: Interaction):
@@ -70,6 +70,11 @@ async def set_bet_amount(interaction: Interaction, bet_amount:float):
 async def set_bet_time(interaction: Interaction, bet_duration: int):
     game.setBetDuration(bet_duration)
     await interaction.response.send_message(f"Betting period is set to {game.getBetDuration()} seconds.", ephemeral=True)
+
+@bot.tree.command(name="trade_url", description="Update your trade url.")
+async def set_trade_url(interaction: Interaction, trade_url:str):
+    updated_url = database.set_trade_url(interaction.user.id, trade_url)
+    await interaction.response.send_message(f"Your trade URL is set to: {updated_url}", ephemeral=True, delete_after=3)
 
 @bot.event
 async def on_ready():
@@ -155,7 +160,7 @@ def update_bets_table(bets: list[Bet] = None, isRoundEnd: bool = False) -> str:
     return content
 
 async def setup_helper(interaction:Interaction=None):
-    global ROULETTE_MSG
+    """ global ROULETTE_MSG
     global ROULETTE_EMBED
     global GAME_BUTTONS
     global BETS_TABLE_MSG_STR
@@ -181,7 +186,12 @@ async def setup_helper(interaction:Interaction=None):
         channel = await bot.fetch_channel(channel_id)
         LEADERBOARD_MSG = await channel.send(embed=LEADERBOARD)
         ROULETTE_MSG = await channel.send(embed=ROULETTE_EMBED, view=GAME_BUTTONS)
-        await set_button_states(False)
+        await set_button_states(False) """
+
+    marketplace_view = setup_marketplace()
+    MARKET_CHANNEL = await bot.fetch_channel(MARKET_CHANNEL_ID)
+    await MARKET_CHANNEL.send(view=marketplace_view)
+    await interaction.response.send_message("Success", delete_after=1)
 
 async def restart():
     global ROULETTE_MSG

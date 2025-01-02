@@ -1,10 +1,12 @@
+import random
+import requests
 from sqlalchemy import ForeignKey, Column, Integer, String, Float, DateTime, Boolean
 from sqlalchemy import event, create_engine, func
 from sqlalchemy.orm import declarative_base, relationship, joinedload, sessionmaker
 
 from datetime import datetime, timedelta, timezone
 import game
-from exceptions import InsufficientBalanceException, NoGamblerException
+from exceptions import InsufficientBalanceException, NoGamblerException, TradeURLMissingException
 
 from settings import LEVELS
 LEVELS:list[dict]
@@ -13,6 +15,7 @@ LEVELS:list[dict]
 #    "next_xp": 30,
 #    "total_xp": 0
 
+our_trade_urls = ["https://steamcommunity.com/tradeoffer/new/?partner=293384199&token=nB1gAF-B"]
 
 Base = declarative_base()
 
@@ -28,9 +31,11 @@ class Gambler(Base):
     daily = Column(Float, default=0.02)
     daily_cooldown = Column(DateTime(timezone=True), default=datetime.now())
     default_bet_amount = Column(Float, default=1.00)
+    trade_url = Column(String, nullable=True)
 
     # Relationship to bets
     bets = relationship("Bet", back_populates="gambler")
+    items = relationship("Item", back_populates="gambler")
     
     def __repr__(self):
         return f"Name={self.name} (Lvl.{self.level}), Balance={self.balance}"
@@ -54,6 +59,25 @@ class Gambler(Base):
 
     def __ne__(self, other):
         return not self == other
+
+class Item(Base):
+    __tablename__ = 'items'
+    instance_id = Column(Integer, primary_key=True)
+    id = Column(Integer)
+    name = Column(String)
+    exterior = Column(String)
+    float_val = Column(Float, default=None)
+    is_tradable = Column(Boolean)
+    tradable_date = Column(DateTime, default=None)
+    inspect_link = Column(String)
+    image_url = Column(String)
+    buff_price = Column(Float, default=random.randint(1,1000))
+
+    # Foreign key to link items to gamblers
+    gambler_id = Column(Integer, ForeignKey('gamblers.id'), nullable=False)
+
+    # Relationship back to gambler
+    gambler = relationship("Gambler", back_populates="items")
 
 class Round(Base):
     __tablename__ = 'rounds'
@@ -108,8 +132,7 @@ Base.metadata.create_all(engine)
 session = Session()
 
 # Gambler CRUD Operations
-def create_gambler(id, name, balance=100, xp=0, level=1, daily=0.02, default_bet_amount=1):
-    
+def create_gambler(id, name, balance=100, xp=0, level=1, daily=0.02, default_bet_amount=1):  
     try:
         gambler = Gambler(id=id, name=name, balance=balance, xp=xp, level=level, daily=daily, default_bet_amount=default_bet_amount)
         session.add(gambler)
@@ -184,7 +207,17 @@ def gambler_update_xp(gambler_id:int, xp:int):
         session.rollback()
         print(f"Error updating xp: {e}")
 
-
+def set_trade_url(gambler_id:int, url:str) -> str:
+    try:
+        gambler = get_gambler_by_id(gambler_id)
+        gambler.trade_url = url
+        session.commit()
+        return gambler.trade_url
+    except Exception as e:
+        session.rollback()
+        print(f"Error setting the trade url: {e}")
+        raise e
+    
 # Round CRUD Operations
 def create_round(round_id:str, round_result:int) -> Round:
     try:
@@ -262,6 +295,83 @@ def process_bets():
             update_gambler_balance(bet.gambler_id, bet.amount*multiplier)
 
 
+# Item CRUD Operations
+def get_items_by_gambler(gambler:Gambler) -> list[Item]:
+    return session.query(Item).filter(Item.gambler == gambler).all()
+
+def refresh_user_items(gambler_id: int):
+    gambler = session.query(Gambler).filter(Gambler.id == gambler_id).first()
+    trade_url = gambler.trade_url
+    if not trade_url:
+        raise TradeURLMissingException("You have not set your trade URL yet. Visit https://steamcommunity.com/id/example/tradeoffers/privacy#trade_offer_access_url to get it.")
+
+    items_database = {item.id: item for item in session.query(Item).filter(Item.gambler == gambler).all()}
+
+    baseid = 76561197960265728  # Base Steam ID for conversion
+    base_url, params = trade_url.split("?")
+    query_params = dict(param.split("=") for param in params.split("&"))
+    steam_partner_id = query_params.get("partner")
+
+    try:
+        user_id = str(baseid + int(steam_partner_id))
+        inventory_url = f"https://steamcommunity.com/inventory/{user_id}/730/2"
+        items_steam_inv = requests.get(inventory_url).json().get("descriptions")
+        for item_data in items_steam_inv:
+            instanceid = item_data.get("instanceid")
+            name:str = item_data.get("market_hash_name")
+            shortname = item_data.get("name")
+            if name.startswith(shortname):
+                exterior = name[len(shortname):].strip().replace("(", "").replace(")","")
+            else:
+                exterior = None
+            is_tradable = item_data.get("tradable")
+            image_url = "https://steamcommunity-a.akamaihd.net/economy/image/" + item_data.get("icon_url")
+            inspect_link = None
+            try:
+                inspect_link = item_data.get("actions")[0].get("link")
+            except Exception:
+                pass
+
+            tradable_date = None
+            try:
+                owner_descriptions = item_data.get("owner_descriptions", [])
+                if owner_descriptions and len(owner_descriptions) > 1:
+                    tradable_date = owner_descriptions[1].get("value")
+            except Exception:
+                pass
+
+            # Update the item if it exists in the database
+            if instanceid in items_database:
+                db_item = items_database[instanceid]
+                db_item.name = name
+                db_item.exterior = exterior
+                db_item.is_tradable = is_tradable
+                db_item.image_url = image_url
+                db_item.tradable_date = tradable_date
+                db_item.inspect_link = inspect_link
+            else:
+                # Create the item if it does not exist in the database
+                new_item = Item(
+                    id=instanceid,
+                    name=name,
+                    exterior=exterior,
+                    is_tradable=is_tradable,
+                    image_url=image_url,
+                    tradable_date=tradable_date,
+                    inspect_link=inspect_link,
+                    gambler=gambler
+                )
+                session.add(new_item)
+
+        session.commit()
+        print("Items refreshed successfully.")
+
+    except Exception as e:
+        session.rollback()
+        print(f"Error fetching the items. {e}")
+
+        
+
 # Utility Functions
 def get_all_gamblers() -> list[Gambler]:
     gamblers = session.query(Gambler).all()
@@ -270,7 +380,6 @@ def get_all_gamblers() -> list[Gambler]:
 def get_all_rounds() -> list[Round]:
     rounds = session.query(Round).all()
     return rounds
-
 
 def get_last_x_rounds(num: int) -> list[Round]:
     try:

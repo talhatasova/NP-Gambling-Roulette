@@ -5,3 +5,7 @@ class InsufficientBalanceException(Exception):
 class NoGamblerException(Exception):
     def __init__(self, *args):
         super().__init__(*args)
+
+class TradeURLMissingException(Exception):
+    def __init__(self, *args):
+        super().__init__(*args)

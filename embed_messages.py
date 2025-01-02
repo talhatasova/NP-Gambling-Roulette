@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from discord import Interaction, Embed, Color
 from emojis import Emoji
-from database import Gambler, get_all_gamblers
+from database import Gambler, get_all_gamblers, Item
 import game
 
 def setup_roulette(roulette_sequence:list[Emoji]=None, last_results: list[Emoji]=None) -> Embed:
@@ -172,4 +172,35 @@ def daily_claimed_success(interaction: Interaction, gambler: Gambler) -> Embed:
     #embed.set_thumbnail(url="https://example.com/success-icon.png")
     embed.add_field(name="Your Updated Balance", value=f"**{gambler.balance:.2f}** coins", inline=False)
     embed.set_footer(text="Don't forget to come back tomorrow for another reward!")
+    return embed
+
+def show_items(interaction: Interaction, items: list[Item]) -> list[Embed]:
+    """ embeds = []
+    for item in items:
+        embed = Embed(
+            title=item.name,
+            description=(
+                f"**Tradable:** {'Yes' if item.is_tradable else 'No'}\n"
+                f"[Inspect Link]({item.inspect_link})" if item.inspect_link else "No Inspect Link"
+            ),
+            color=Color.gold()
+        )
+        # Add the item's image to the embed
+        if item.image_url:
+            embed.set_thumbnail(url=item.image_url)
+        
+        embeds.append(embed)
+    return embeds[:10] """
+    embed = Embed(
+            title="skinler",
+            description=(
+                "seç beğen al"
+            ),
+            color=Color.gold()
+        )
+    for item in items[:25]:
+        embed.add_field(
+            name=item.name,
+            value=f"Price: {item.buff_price}",
+            inline=True)
     return embed
