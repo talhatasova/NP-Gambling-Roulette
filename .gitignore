@@ -1,6 +1,9 @@
 *.env
 *.db
 *.pkl
+*.png
 
+
+Emojis/
 __pycache__/
 .venv/
