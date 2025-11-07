@@ -158,12 +158,19 @@ def set_bet_id(mapper, connection, target):
     if not target.id:
         target.id = generate_unique_id(prefix="bet")
 
-# Database Setup
-DATABASE_URL = "sqlite:///roulette_game.db"
+VOLUME_DIR = "/database"
+DB_NAME = "roulette_game.db"
+DATABASE_PATH = os.path.join(VOLUME_DIR, DB_NAME)
+os.makedirs(VOLUME_DIR, exist_ok=True)
+DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
+
+# The rest of your code remains the same
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 Base.metadata.create_all(engine)
 session = Session()
+
+print(f"Database connected at: {DATABASE_URL}")
 
 # Gambler CRUD Operations
 def create_gambler(id, name, balance=100, xp=0, level=1, daily=0.02, default_bet_amount=1):  
