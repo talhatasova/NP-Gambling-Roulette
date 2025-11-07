@@ -410,12 +410,15 @@ class RegisterButton(Button):
             gambler = database.get_gambler_by_id(interaction.user.id)
             await interaction.response.send_message(f"You are already registered as **{gambler.name}** with **${gambler.balance:.2f}** credit.", ephemeral=True)
         except NoGamblerException:
-            database.create_gambler(interaction.user.id, interaction.user.global_name)
+            created_gambler: Gambler = database.create_gambler(interaction.user.id, interaction.user.global_name)
+            if not created_gambler:
+                await interaction.response.send_message("Error during registration. Please try again later.", ephemeral=True)
+                return
             # ----------------- UPDATE THE LEADERBOARD
             LEADERBOARD = embed_messages.leaderboard()
             await  LEADERBOARD_MSG.edit(embed=LEADERBOARD)
-            await interaction.response.send_message(f"You have been registered as **{interaction.user.global_name}** with **$100.00** credit.", ephemeral=True)
-        
+            await interaction.response.send_message(f"You have been registered as **{interaction.user.global_name}** with **${created_gambler.balance:.2f}** credit.", ephemeral=True)
+
 class DailyRewardButton(Button):
     def __init__(self):
         super().__init__(label="Claim Daily Reward", style=ButtonStyle.primary, emoji="🎁")

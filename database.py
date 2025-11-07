@@ -164,7 +164,6 @@ DATABASE_PATH = os.path.join(VOLUME_DIR, DB_NAME)
 os.makedirs(VOLUME_DIR, exist_ok=True)
 DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
 
-# The rest of your code remains the same
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 Base.metadata.create_all(engine)
@@ -173,7 +172,7 @@ session = Session()
 print(f"Database connected at: {DATABASE_URL}")
 
 # Gambler CRUD Operations
-def create_gambler(id, name, balance=100, xp=0, level=1, daily=0.02, default_bet_amount=1):  
+def create_gambler(id, name, balance=0, xp=0, level=1, daily=10.00, default_bet_amount=1) -> Gambler:
     try:
         gambler = Gambler(id=id, name=name, balance=balance, xp=xp, level=level, daily=daily, default_bet_amount=default_bet_amount)
         session.add(gambler)
@@ -183,16 +182,14 @@ def create_gambler(id, name, balance=100, xp=0, level=1, daily=0.02, default_bet
     except Exception as e:
         session.rollback()
         print(f"Error creating gambler: {e}")
+        return None
 
 def get_gambler_by_id(gambler_id: int) -> Gambler:
-    try:
-        gambler = session.query(Gambler).options(joinedload(Gambler.bets)).filter_by(id=gambler_id).first()
-        if gambler:
-            return gambler
-        else:
-            raise NoGamblerException("You are not registered yet. Please click on the `Register` button and start playing.")
-    except Exception as e:
-        print(f"Database Error! get_gambler_by_id: {e}")
+    gambler = session.query(Gambler).options(joinedload(Gambler.bets)).filter_by(id=gambler_id).first()
+    if gambler:
+        return gambler
+    else:
+        raise NoGamblerException("You are not registered yet. Please click on the `Register` button and start playing.")
 
 def update_daily_cooldown(gambler_id: int): 
     try:
