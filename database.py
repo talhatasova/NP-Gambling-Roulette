@@ -1,4 +1,7 @@
+import os
 import random
+import time
+from dotenv import load_dotenv, set_key
 import requests
 from sqlalchemy import ForeignKey, Column, Integer, String, Float, DateTime, Boolean
 from sqlalchemy import event, create_engine, func
@@ -9,6 +12,7 @@ import game
 from exceptions import InsufficientBalanceException, NoGamblerException, TradeURLMissingException
 
 from settings import LEVELS
+import settings
 LEVELS:list[dict]
 #    "level": 1,
 #    "daily": 0.02,
@@ -25,10 +29,10 @@ class Gambler(Base):
     
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
-    balance = Column(Float, default=100)
+    balance = Column(Float, default=0)
     xp = Column(Integer, default=0)
     level = Column(Integer, default=1)
-    daily = Column(Float, default=0.02)
+    daily = Column(Float, default=10.00)
     daily_cooldown = Column(DateTime(timezone=True), default=datetime.now())
     default_bet_amount = Column(Float, default=1.00)
     trade_url = Column(String, nullable=True)
@@ -62,8 +66,7 @@ class Gambler(Base):
 
 class Item(Base):
     __tablename__ = 'items'
-    instance_id = Column(Integer, primary_key=True)
-    id = Column(Integer)
+    id = Column(Integer, nullable=False, primary_key=True)
     name = Column(String)
     exterior = Column(String)
     float_val = Column(Float, default=None)
@@ -71,13 +74,44 @@ class Item(Base):
     tradable_date = Column(DateTime, default=None)
     inspect_link = Column(String)
     image_url = Column(String)
-    buff_price = Column(Float, default=random.randint(1,1000))
+    buff_price = Column(Float, nullable=True)
+    last_update = Column(DateTime, default=datetime.now(timezone.utc))
 
     # Foreign key to link items to gamblers
     gambler_id = Column(Integer, ForeignKey('gamblers.id'), nullable=False)
 
     # Relationship back to gambler
     gambler = relationship("Gambler", back_populates="items")
+    # Comparison methods based on buff_price
+    def __lt__(self, other):
+        if isinstance(other, Item):
+            return self.buff_price < other.buff_price
+        return NotImplemented
+
+    def __le__(self, other):
+        if isinstance(other, Item):
+            return self.buff_price <= other.buff_price
+        return NotImplemented
+
+    def __gt__(self, other):
+        if isinstance(other, Item):
+            return self.buff_price > other.buff_price
+        return NotImplemented
+
+    def __ge__(self, other):
+        if isinstance(other, Item):
+            return self.buff_price >= other.buff_price
+        return NotImplemented
+
+    def __eq__(self, other):
+        if isinstance(other, Item):
+            return self.buff_price == other.buff_price
+        return NotImplemented
+
+    def __ne__(self, other):
+        if isinstance(other, Item):
+            return self.buff_price != other.buff_price
+        return NotImplemented
 
 class Round(Base):
     __tablename__ = 'rounds'
@@ -303,9 +337,7 @@ def refresh_user_items(gambler_id: int):
     gambler = session.query(Gambler).filter(Gambler.id == gambler_id).first()
     trade_url = gambler.trade_url
     if not trade_url:
-        raise TradeURLMissingException("You have not set your trade URL yet. Visit https://steamcommunity.com/id/example/tradeoffers/privacy#trade_offer_access_url to get it.")
-
-    items_database = {item.id: item for item in session.query(Item).filter(Item.gambler == gambler).all()}
+        raise TradeURLMissingException("You have not set your trade URL yet. Visit https://steamcommunity.com/id/example/tradeoffers/privacy#trade_offer_access_url to get it and use /trade_url command to save.")
 
     baseid = 76561197960265728  # Base Steam ID for conversion
     base_url, params = trade_url.split("?")
@@ -316,12 +348,40 @@ def refresh_user_items(gambler_id: int):
         user_id = str(baseid + int(steam_partner_id))
         inventory_url = f"https://steamcommunity.com/inventory/{user_id}/730/2"
         items_steam_inv = requests.get(inventory_url).json().get("descriptions")
+        steam_item_names = {item.get("market_hash_name") for item in items_steam_inv}
+        
+        # Delete the items that no longer in the inventory
+        current_items = {item.name: item for item in session.query(Item).filter(Item.gambler_id == gambler_id).all()}
+        no_longer_exist_items = [current_item for current_item in current_items.values() if current_item.name not in steam_item_names]
+        for item in no_longer_exist_items:
+            session.delete(item)
+
+        # Add or update items from the Steam inventory
         for item_data in items_steam_inv:
-            instanceid = item_data.get("instanceid")
-            name:str = item_data.get("market_hash_name")
+            name: str = item_data.get("market_hash_name")
+            existing_item = current_items.get(name)
+
+            # Check if the item exists and if it was updated within the last 24 hours
+            if existing_item and existing_item.last_update and (datetime.now() - existing_item.last_update) < timedelta(hours=24):
+                print(f"Skipping item *{name}* of *{gambler.name}* as it was updated within the last 24 hours.")
+                continue
+
+            # Delete the existing item if it's not updated within 24 hours
+            if existing_item:
+                session.delete(existing_item)
+
+            try:
+                item_buff_id = ITEM_ID_DICT[name]
+                print(f"{name} requested Buff Price! {datetime.now(timezone.utc)}")
+                buff_price_ls, buff_price_hb = getBuffDataByItemID(item_buff_id)
+                buff_price_ls *= 1.03
+                buff_price_hb *= 0.95
+            except:
+                buff_price_ls, buff_price_hb = None, None
+
             shortname = item_data.get("name")
             if name.startswith(shortname):
-                exterior = name[len(shortname):].strip().replace("(", "").replace(")","")
+                exterior = name[len(shortname):].strip().replace("(", "").replace(")", "")
             else:
                 exterior = None
             is_tradable = item_data.get("tradable")
@@ -340,28 +400,19 @@ def refresh_user_items(gambler_id: int):
             except Exception:
                 pass
 
-            # Update the item if it exists in the database
-            if instanceid in items_database:
-                db_item = items_database[instanceid]
-                db_item.name = name
-                db_item.exterior = exterior
-                db_item.is_tradable = is_tradable
-                db_item.image_url = image_url
-                db_item.tradable_date = tradable_date
-                db_item.inspect_link = inspect_link
-            else:
-                # Create the item if it does not exist in the database
-                new_item = Item(
-                    id=instanceid,
-                    name=name,
-                    exterior=exterior,
-                    is_tradable=is_tradable,
-                    image_url=image_url,
-                    tradable_date=tradable_date,
-                    inspect_link=inspect_link,
-                    gambler=gambler
-                )
-                session.add(new_item)
+            # Create the new item
+            new_item = Item(
+                name=name,
+                exterior=exterior,
+                is_tradable=is_tradable,
+                image_url=image_url,
+                buff_price=buff_price_hb,
+                tradable_date=tradable_date,
+                inspect_link=inspect_link,
+                gambler=gambler,
+                last_update=datetime.now(timezone.utc)  # Set the current time as the last update
+            )
+            session.add(new_item)
 
         session.commit()
         print("Items refreshed successfully.")
@@ -369,8 +420,6 @@ def refresh_user_items(gambler_id: int):
     except Exception as e:
         session.rollback()
         print(f"Error fetching the items. {e}")
-
-        
 
 # Utility Functions
 def get_all_gamblers() -> list[Gambler]:
@@ -399,3 +448,69 @@ def get_round_count() -> int:
 def get_all_bets_by_round_id(round_id:int) -> list[Bet]:   
     bets = session.query(Bet).filter(Bet.round_id==round_id).all()
     return bets
+
+
+# ---------------------------- BUFF PRICE ---------------------------- #
+RETRY = 4
+HEADERS = settings.buff_headers
+PARAMS = settings.buff_params
+PROXIES = None
+LS_url = "https://buff.163.com/api/market/goods/sell_order"
+HB_url = "https://buff.163.com/api/market/goods/buy_order"
+with open("buffids.txt", "r", encoding="utf8") as f:
+    lines = f.readlines()
+
+ITEM_ID_DICT = {line.split(";")[1].strip():line.split(";")[0] for line in lines}
+def getCNY_USD() -> float:
+        load_dotenv()
+        f = os.getenv("YUANUSD")
+        rate, date = f.split(",")
+        
+        dt_object = datetime.strptime(date, "%d/%m/%Y")
+        if dt_object < datetime.now():
+            try:
+                url = "https://api.exchangerate-api.com/v4/latest/CNY"
+                response = requests.get(url)
+                data = response.json()
+                rate = float(data["rates"]["USD"])
+                formatted_date = datetime.now().strftime("%d/%m/%Y")
+                set_key(".env", "YUANUSD", f"{str(rate)},{formatted_date}")
+            except Exception as e:
+                print(e)
+        return rate
+YUANUSD = getCNY_USD()
+
+def getBuffDataByItemID(itemid):
+    PARAMS["goods_id"] = str(itemid)
+    for try_count in range(RETRY):
+        try:
+            sellResponseRequest = requests.get(LS_url, params=PARAMS, headers=HEADERS, proxies=PROXIES, timeout=5)
+            sellResponse = sellResponseRequest.json()["data"]["items"]
+            break
+        except Exception as e:
+            if sellResponseRequest.status_code == 429:
+                print("Too many requests")
+                time.sleep(random.randint(1,3))
+            continue
+
+    for try_count in range(RETRY):
+        try:
+            buyResponseRequest = requests.get(HB_url, params=PARAMS, headers=HEADERS, proxies=PROXIES, timeout=5)
+            buyResponse = buyResponseRequest.json()["data"]["items"]
+            break
+        except Exception as e:
+            if buyResponseRequest.status_code == 429:
+                print("Too many requests")
+                time.sleep(random.randint(1,3))
+            continue
+
+    try:
+        lowestSell = round(float(sellResponse[0].get("price"))*YUANUSD, 2)
+    except Exception:
+        lowestSell = None
+    try:
+        highestBuy = round(float(buyResponse[0].get("price"))*YUANUSD, 2)
+    except Exception:
+        highestBuy = None
+
+    return (lowestSell, highestBuy)

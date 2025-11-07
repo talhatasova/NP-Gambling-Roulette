@@ -1,5 +1,6 @@
 import requests
 import uuid
+import random
 from emojis import Emoji
 
 class Results():
@@ -55,8 +56,10 @@ def getNewRoundResult() -> int:
         result = response[0].get("random")
         result = result % 15
         return result
-    except Exception:
-        return None
+    except Exception as e:
+        print(f"Error fetching new round result: {e}")
+        result = random.randint(0, 14)
+        return result
     
 def getNewRoundID() -> str:
     return str(uuid.uuid4())

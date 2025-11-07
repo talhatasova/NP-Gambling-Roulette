@@ -35,23 +35,24 @@ def leaderboard() -> Embed:
     gamblers: list[Gambler] = sorted(get_all_gamblers(), reverse=True)
     
     # Get the last update time
-    last_update_date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    last_update_date = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
 
     # Prepare the leaderboard content
     leaderboard_rows = []
     rank = 1
     for gambler in gamblers:
+        if rank > 10:
+            break
         name = gambler.name[:16].ljust(16)  # Truncate and align name to 10 chars
         balance = f"{gambler.balance:.2f}".rjust(10)  # Format balance
         bet_so_far = f"{sum(bet.amount for bet in gambler.bets):.2f}".rjust(10)  # Total bets placed
-        if float(bet_so_far) > 20 and balance > 0: 
-            leaderboard_rows.append(f"{rank:<4} {name} {balance} {bet_so_far}")
-            rank += 1
+        leaderboard_rows.append(f"{rank:<4} {name} {balance} {bet_so_far}")
+        rank += 1
 
     # Create the embed
     embed = Embed(
         title="🏆 LEADERBOARD 🏆",
-        description=f"`{last_update_date} UTC`",
+        description=f"`{last_update_date} GMT+3`",
         color=Color.gold()
     )
 
@@ -174,33 +175,30 @@ def daily_claimed_success(interaction: Interaction, gambler: Gambler) -> Embed:
     embed.set_footer(text="Don't forget to come back tomorrow for another reward!")
     return embed
 
-def show_items(interaction: Interaction, items: list[Item]) -> list[Embed]:
-    """ embeds = []
-    for item in items:
-        embed = Embed(
+def show_items(interaction: Interaction, items: list[Item], page_size:int=10) -> list[list[Embed]]:
+    embeds_pages = []
+
+    # Create embeds grouped by page size
+    items.sort(reverse=True)
+    for i in range(0, len(items), page_size):
+        page_items = items[i:i+page_size]
+        embeds = []
+        for item in page_items:
+            if not item.is_tradable:
+                continue
+            embed = Embed(
             title=item.name,
-            description=(
-                f"**Tradable:** {'Yes' if item.is_tradable else 'No'}\n"
-                f"[Inspect Link]({item.inspect_link})" if item.inspect_link else "No Inspect Link"
-            ),
-            color=Color.gold()
-        )
-        # Add the item's image to the embed
-        if item.image_url:
-            embed.set_thumbnail(url=item.image_url)
-        
-        embeds.append(embed)
-    return embeds[:10] """
-    embed = Embed(
-            title="skinler",
-            description=(
-                "seç beğen al"
-            ),
-            color=Color.gold()
-        )
-    for item in items[:25]:
-        embed.add_field(
-            name=item.name,
-            value=f"Price: {item.buff_price}",
-            inline=True)
-    return embed
+            # **Float:** {item.float_val}
+            description=f'''
+                **Price:** ${round(item.buff_price, 2)}
+            ''',
+            color=Color.gold(),
+            timestamp=datetime.now()
+            )
+            if item.image_url:
+                embed.set_thumbnail(url=item.image_url)
+            embeds.append(embed)
+        embeds_pages.append(embeds)
+
+    return embeds_pages
+

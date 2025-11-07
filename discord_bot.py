@@ -39,6 +39,7 @@ public_key = os.getenv("PUBLIC_KEY")
 # Initialize bot
 intents = Intents.default()
 intents.message_content = True
+intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
@@ -160,7 +161,7 @@ def update_bets_table(bets: list[Bet] = None, isRoundEnd: bool = False) -> str:
     return content
 
 async def setup_helper(interaction:Interaction=None):
-    """ global ROULETTE_MSG
+    global ROULETTE_MSG
     global ROULETTE_EMBED
     global GAME_BUTTONS
     global BETS_TABLE_MSG_STR
@@ -180,13 +181,12 @@ async def setup_helper(interaction:Interaction=None):
         LEADERBOARD_MSG = await interaction.channel.send(embed=LEADERBOARD)
         ROULETTE_MSG = await interaction.channel.send(embed=ROULETTE_EMBED, view=GAME_BUTTONS)
         await set_button_states(False)
-        await interaction.response.send_message("Setting up the roulette game!", ephemeral=True, delete_after=1)
     else:
         channel_id = 1323057839782101002
         channel = await bot.fetch_channel(channel_id)
         LEADERBOARD_MSG = await channel.send(embed=LEADERBOARD)
         ROULETTE_MSG = await channel.send(embed=ROULETTE_EMBED, view=GAME_BUTTONS)
-        await set_button_states(False) """
+        await set_button_states(False)
 
     marketplace_view = setup_marketplace()
     MARKET_CHANNEL = await bot.fetch_channel(MARKET_CHANNEL_ID)
@@ -221,9 +221,9 @@ async def start_roulette_loop():
         global LEADERBOARD
 
         # ----------------- NEED TO RESTART ?
-        round_count = database.get_round_count()
+        """ round_count = database.get_round_count()
         if round_count % 50 == 0:
-            await restart()
+            await restart() """
         # ----------------- UPDATE THE LEADERBOARD
         LEADERBOARD = embed_messages.leaderboard()
         await  LEADERBOARD_MSG.edit(embed=LEADERBOARD)
