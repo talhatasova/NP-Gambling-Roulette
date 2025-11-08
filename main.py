@@ -221,9 +221,9 @@ async def start_roulette_loop():
         global LEADERBOARD
 
         # ----------------- NEED TO RESTART ?
-        """ round_count = database.get_round_count()
+        round_count = database.get_round_count()
         if round_count % 50 == 0:
-            await restart() """
+            await restart()
         # ----------------- UPDATE THE LEADERBOARD
         LEADERBOARD = embed_messages.leaderboard()
         await  LEADERBOARD_MSG.edit(embed=LEADERBOARD)
