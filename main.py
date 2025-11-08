@@ -104,11 +104,15 @@ async def gambler_autocomplete(interaction: Interaction, current: str):
 
 @bot.tree.command(name="set_balance", description="Update balance for a gambler.")
 @app_commands.default_permissions(administrator=True)
-@app_commands.autocomplete(gambler_id=gambler_autocomplete)
-async def set_balance(interaction: Interaction, gambler_id:int, balance:float):
+async def set_balance(interaction: Interaction, gambler_name:str, balance:float):
     """Update balance for a gambler. The gambler_id parameter uses autocomplete to select a registered gambler."""
-    updated_balance = database.update_gambler_balance(gambler_id, balance)
-    await interaction.response.send_message(f"Balance for {gambler_id} is updated by: {updated_balance}", ephemeral=True)
+    gamblers = database.get_all_gamblers()
+    gambler = next((g for g in gamblers if g.name == gambler_name), None)
+    if not gambler:
+        await interaction.response.send_message(f"Gambler with name '{gambler_name}' not found.", ephemeral=True)
+        return
+    updated_balance = database.update_gambler_balance(gambler.id, balance)
+    await interaction.response.send_message(f"Balance for {gambler.name} is updated by: {updated_balance}", ephemeral=True)
 
 
 @bot.event
