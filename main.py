@@ -77,6 +77,12 @@ async def set_trade_url(interaction: Interaction, trade_url:str):
     updated_url = database.set_trade_url(interaction.user.id, trade_url)
     await interaction.response.send_message(f"Your trade URL is set to: {updated_url}", ephemeral=True, delete_after=3)
 
+@bot.tree.command(name="set_balance", description="Update balance for a gambler.")
+@app_commands.default_permissions(administrator=True)
+async def set_balance(interaction: Interaction, gambler_id:int, balance:float):
+    updated_balance = database.update_gambler_balance(gambler_id, balance)
+    await interaction.response.send_message(f"Balance for {gambler_id} is updated by: {updated_balance}", ephemeral=True)
+
 @bot.event
 async def on_ready():
     try:
