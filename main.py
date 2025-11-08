@@ -77,11 +77,39 @@ async def set_trade_url(interaction: Interaction, trade_url:str):
     updated_url = database.set_trade_url(interaction.user.id, trade_url)
     await interaction.response.send_message(f"Your trade URL is set to: {updated_url}", ephemeral=True, delete_after=3)
 
+
+async def gambler_autocomplete(interaction: Interaction, current: str):
+    """Autocomplete for gambler_id: shows registered gamblers (name and id).
+
+    Returns up to 25 matches filtered by typed text matching name or id.
+    """
+    try:
+        gamblers = database.get_all_gamblers()
+    except Exception:
+        return []
+
+    # If user hasn't typed anything yet, show first 25 gamblers
+    if not current:
+        choices = [app_commands.Choice(name=f"{g.name} ({g.id})", value=g.id) for g in gamblers[:25]]
+        return choices
+
+    current_lower = current.lower()
+    matches = []
+    for g in gamblers:
+        if current_lower in str(g.id) or current_lower in g.name.lower():
+            matches.append(app_commands.Choice(name=f"{g.name} ({g.id})", value=g.id))
+            if len(matches) >= 25:
+                break
+    return matches
+
 @bot.tree.command(name="set_balance", description="Update balance for a gambler.")
 @app_commands.default_permissions(administrator=True)
+@app_commands.autocomplete(gambler_id=gambler_autocomplete)
 async def set_balance(interaction: Interaction, gambler_id:int, balance:float):
+    """Update balance for a gambler. The gambler_id parameter uses autocomplete to select a registered gambler."""
     updated_balance = database.update_gambler_balance(gambler_id, balance)
     await interaction.response.send_message(f"Balance for {gambler_id} is updated by: {updated_balance}", ephemeral=True)
+
 
 @bot.event
 async def on_ready():
@@ -433,7 +461,7 @@ class DailyRewardButton(Button):
     async def callback(self, interaction: Interaction):
         try:
             gambler = database.get_gambler_by_id(interaction.user.id)
-        except NoGamblerException as e:
+        except NoGamblerException:
             await interaction.response.send_message("You are not registered as a gambler yet! Click on the `🆕 Register` button to start playing.", ephemeral=True)
             return
 
