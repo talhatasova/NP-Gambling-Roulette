@@ -222,7 +222,7 @@ async def start_roulette_loop():
 
         # ----------------- NEED TO RESTART ?
         round_count = database.get_round_count()
-        if round_count % 50 == 0:
+        if round_count % 50 == 49:
             await restart()
         # ----------------- UPDATE THE LEADERBOARD
         LEADERBOARD = embed_messages.leaderboard()
