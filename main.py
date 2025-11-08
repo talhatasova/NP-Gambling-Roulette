@@ -181,6 +181,7 @@ async def setup_helper(interaction:Interaction=None):
         LEADERBOARD_MSG = await interaction.channel.send(embed=LEADERBOARD)
         ROULETTE_MSG = await interaction.channel.send(embed=ROULETTE_EMBED, view=GAME_BUTTONS)
         await set_button_states(False)
+        await interaction.response.send_message("Success", delete_after=1)
     else:
         channel_id = 1323057839782101002
         channel = await bot.fetch_channel(channel_id)
@@ -191,7 +192,7 @@ async def setup_helper(interaction:Interaction=None):
     marketplace_view = setup_marketplace()
     MARKET_CHANNEL = await bot.fetch_channel(MARKET_CHANNEL_ID)
     await MARKET_CHANNEL.send(view=marketplace_view)
-    await interaction.response.send_message("Success", delete_after=1)
+    
 
 async def restart():
     global ROULETTE_MSG
